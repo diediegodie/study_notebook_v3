@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.log
+
+# Virtual environment
+venv/
+.env
+
+# SQLite database
+data/*.db
+
+# User notes and backups
+data/notes/
+*.zip
+
+# Packaging / build
+build/
+dist/
+*.spec
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+
+# OS files
+.DS_Store
+Thumbs.db
+docs/
+rules.instructions.md

@@ -1,0 +1,98 @@
+import flet as ft
+
+theme = {
+    # GENERAL
+    "BORDER_RADIUS": 12,
+
+    # LIGHT COLORS
+    "COLOR_PRIMARY": "#CCCCCC",
+    "COLOR_SECONDARY": "#E0E0E0",
+    "COLOR_TEXT": "#212121",
+    "COLOR_BG_LIGHT": "#F5F5F5",
+    "COLOR_BG_DARK": "#888888",
+    "COLOR_ACCENT": "#888888",
+    "COLOR_DIVIDER": "#B0B0B0",
+    "COLOR_CARD_BG": "#E0E0E0",
+    "COLOR_SIDEBAR_BG": "#CCCCCC",
+    "COLOR_FOOTER_BG": "#CCCCCC",
+    "COLOR_DEFAULT_AVATAR_BG": "#A0A0A0",
+    
+    # TYPOGRAPHY
+    "FONT_SIZE_XS": 10,
+    "FONT_SIZE_SM": 12,
+    "FONT_SIZE_MD": 16,
+    "FONT_SIZE_LG": 20,
+    "FONT_SIZE_XL": 24,
+    "FONT_WEIGHT_NORMAL": ft.FontWeight.NORMAL,
+    "FONT_WEIGHT_BOLD": ft.FontWeight.BOLD,
+    
+    # SPACING
+    "SPACING_XS": 4,
+    "SPACING_SM": 8,
+    "SPACING_MD": 12,
+    "SPACING_LG": 16,
+    "SPACING_XL": 24,
+    
+    # ICONS
+    "ICON_SIZE_SM": 16,
+    "ICON_SIZE_MD": 20,
+    "ICON_SIZE_LG": 24,
+    "ICON_SIZE_XL": 40,
+    
+    # COMPONENTS
+    "CARD_WIDTH_PROFILE": 500,
+    "INPUT_FIELD_WIDTH": 300,
+    "BUTTON_HEIGHT": 50,
+    "BUTTON_WIDTH_MEDIUM": 200,
+    "LOGO_SIZE": 100,
+    "LANDING_BUTTON_WIDTH": 150,
+    "LANDING_SPACER_HEIGHT": 30,
+    "POST_IMAGE_HEIGHT": 200,
+    "DIVIDER_HEIGHT": 1,
+    "BADGE_SIZE": 24,
+    
+    # HEADER
+    "HEADER_HEIGHT": 56,
+    "HEADER_FONT_SIZE": 20,
+    "HEADER_FONT_WEIGHT": ft.FontWeight.NORMAL,
+    "HEADER_COLOR": "#212121",
+    "HEADER_BG": "#CCCCCC",
+    "HEADER_PADDING": 10,
+    "HEADER_ALIGNMENT": ft.alignment.center,
+    "HEADER_ROW_ALIGNMENT": ft.MainAxisAlignment.CENTER,
+    
+    # SEARCH BAR
+    "SEARCH_HINT": "Search...",
+    "SEARCH_WIDTH": 410,
+    "SEARCH_BG": "#F5F5F5",
+    "SEARCH_BORDER_COLOR": "#B0B0B0",
+    "SEARCH_COLOR": "#212121",
+    "SEARCH_BORDER_RADIUS": 8,
+    "SEARCH_FILLED": True,
+    "SEARCH_TEXT_ALIGN": ft.TextAlign.CENTER,
+    "SEARCH_FONT_SIZE": 16,
+    "SEARCH_TEXT_VERTICAL_ALIGN": ft.VerticalAlignment.CENTER,
+
+    # SIDEBAR
+    "SIDEBAR_WIDTH": 220,
+    "SIDEBAR_PADDING": 10,
+    "SIDEBAR_TITLE_FONT_SIZE": 20,
+    "SIDEBAR_TITLE_FONT_WEIGHT": ft.FontWeight.BOLD,
+    "SIDEBAR_BG": "#CCCCCC",
+    "SIDEBAR_TITLE_COLOR": "#212121",
+    "SIDEBAR_ITEM_COLOR": "#212121",
+    
+    # FOOTER
+    "FOOTER_HEIGHT": 28,
+    "FOOTER_FONT_SIZE": 10,
+    "FOOTER_COLOR": "#212121",
+    "FOOTER_BG": "#CCCCCC",
+    "FOOTER_PADDING": 6,
+    "FOOTER_ALIGNMENT": ft.alignment.center,
+    
+    # MAIN CONTENT
+    "MAIN_CONTENT_FONT_SIZE": 16,
+    "MAIN_CONTENT_COLOR": "#212121",
+    "MAIN_CONTENT_BG": "#E0E0E0",
+    "MAIN_CONTENT_PADDING": 14,
+}
