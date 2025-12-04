@@ -2,7 +2,40 @@ import os
 from typing import List
 
 BASE_DIR = os.path.join(os.path.dirname(__file__), "../notebooks")
-FOLDERS = ["Notebooks", "Resources", "Archive"]
+
+# Default folders (used for initial state/UI)
+DEFAULT_FOLDERS = ["Notebooks", "Resources", "Archive"]
+
+
+def list_folders() -> list:
+    """List all folders in BASE_DIR, sorted, excluding non-directories and hidden folders."""
+    if not os.path.exists(BASE_DIR):
+        os.makedirs(BASE_DIR, exist_ok=True)
+    return sorted(
+        [
+            f
+            for f in os.listdir(BASE_DIR)
+            if os.path.isdir(os.path.join(BASE_DIR, f)) and not f.startswith(".")
+        ]
+    )
+
+
+def create_folder(folder: str) -> None:
+    """Create a new folder in BASE_DIR."""
+    folder_path = os.path.join(BASE_DIR, folder)
+    os.makedirs(folder_path, exist_ok=True)
+
+
+def delete_folder(folder: str) -> None:
+    """Delete a folder and all its contents from BASE_DIR."""
+    import shutil
+
+    folder_path = os.path.join(BASE_DIR, folder)
+    if os.path.exists(folder_path) and os.path.isdir(folder_path):
+        shutil.rmtree(folder_path)
+
+
+FOLDERS = DEFAULT_FOLDERS  # For legacy compatibility; prefer list_folders() in UI
 
 
 def list_markdown_files(folder: str) -> List[str]:
