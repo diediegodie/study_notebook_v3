@@ -32,3 +32,4 @@ Thumbs.db
 docs/
 rules.instructions.md
 notebooks/
+app_state.json
