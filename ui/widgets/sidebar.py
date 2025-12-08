@@ -12,6 +12,8 @@ def sidebar(
     on_create_subfolder=None,
     on_create_file=None,
     on_toggle_folder=None,
+    on_rename_file=None,
+    on_rename_folder=None,
     current_file=None,
     current_folder=None,
 ):
@@ -32,6 +34,10 @@ def sidebar(
         on_create_subfolder = lambda *_: None
     if on_create_file is None:
         on_create_file = lambda *_: None
+    if on_rename_file is None:
+        on_rename_file = lambda *_: None
+    if on_rename_folder is None:
+        on_rename_folder = lambda *_: None
 
     def build_items():
         items = []
@@ -54,7 +60,21 @@ def sidebar(
                 vertical_alignment=ft.CrossAxisAlignment.START,
             )
         )
-        items.append(ft.Container(height=0))
+        # Divider line above first folder
+        items.append(
+            ft.Container(
+                content=ft.Divider(
+                    height=1,
+                    color=theme.get("SIDEBAR_LINE_COLOR"),
+                ),
+                padding=ft.Padding(
+                    0,
+                    theme.get("SIDEBAR_DIVIDER_MARGIN", 8),
+                    0,
+                    theme.get("SIDEBAR_DIVIDER_MARGIN", 8),
+                ),
+            )
+        )
 
         def is_ancestor_folder(folder_path, current_folder):
             if not current_folder:
@@ -111,6 +131,15 @@ def sidebar(
                                         on_click=lambda _, f=folder_path: (
                                             on_create_subfolder(f)
                                             if on_create_subfolder
+                                            else None
+                                        ),
+                                    ),
+                                    ft.PopupMenuItem(
+                                        text="Rename",
+                                        icon=ft.Icons.EDIT,
+                                        on_click=lambda _, f=folder_path: (
+                                            on_rename_folder(f)
+                                            if on_rename_folder
                                             else None
                                         ),
                                     ),
@@ -177,37 +206,28 @@ def sidebar(
                                             "SIDEBAR_FILE_TEXT_STYLE", None
                                         ),
                                     ),
-                                    ft.Container(
-                                        content=ft.IconButton(
-                                            icon=ft.Icons.CLOSE,
-                                            tooltip="Delete File",
-                                            on_click=lambda _, f=folder_path, fi=file: on_delete_file(
-                                                f, fi
+                                    ft.PopupMenuButton(
+                                        icon=ft.Icons.MORE_VERT,
+                                        icon_size=16,
+                                        style=ft.ButtonStyle(padding=0, shape=None),
+                                        items=[
+                                            ft.PopupMenuItem(
+                                                text="Rename",
+                                                icon=ft.Icons.EDIT,
+                                                on_click=lambda _, f=folder_path, fi=file: (
+                                                    on_rename_file(f, fi)
+                                                    if on_rename_file
+                                                    else None
+                                                ),
                                             ),
-                                            icon_size=theme.get("ICON_SIZE_SM"),
-                                            style=ft.ButtonStyle(
-                                                padding=0,
-                                                shape=None,
-                                                bgcolor={
-                                                    ft.ControlState.HOVERED: theme.get(
-                                                        "SIDEBAR_DELETE_BG_HOVER",
-                                                        "#E0E0E0",
-                                                    ),
-                                                },
-                                                overlay_color={
-                                                    ft.ControlState.HOVERED: theme.get(
-                                                        "SIDEBAR_DELETE_BG_HOVER",
-                                                        "#E0E0E0",
-                                                    ),
-                                                },
+                                            ft.PopupMenuItem(
+                                                text="Delete",
+                                                icon=ft.Icons.DELETE,
+                                                on_click=lambda _, f=folder_path, fi=file: on_delete_file(
+                                                    f, fi
+                                                ),
                                             ),
-                                        ),
-                                        width=theme.get("NEW_TAB_PERFECT_CIRCLE"),
-                                        height=theme.get("NEW_TAB_PERFECT_CIRCLE"),
-                                        border_radius=theme.get(
-                                            "NEW_TAB_PERFECT_CIRCLE"
-                                        ),
-                                        alignment=ft.alignment.center,
+                                        ],
                                     ),
                                 ],
                                 alignment=ft.MainAxisAlignment.SPACE_BETWEEN,

@@ -14,6 +14,21 @@ from backend.files_manager import (
 
 
 def main_page(page: ft.Page):
+    # Global dialog reference for ESC handling
+    current_dialog = None
+
+    def esc_handler(e: ft.KeyboardEvent):
+        nonlocal current_dialog
+        if (
+            e.key == "Escape"
+            and current_dialog
+            and getattr(current_dialog, "open", False)
+        ):
+            current_dialog.open = False
+            page.update()
+
+    page.on_keyboard_event = esc_handler
+
     # noinspection PyUnresolvedReference
     # Variables defined later in this function scope
     def close_dialog(_):
@@ -110,6 +125,8 @@ def main_page(page: ft.Page):
                 "Create", on_click=on_create, height=theme["BUTTON_HEIGHT"]
             ),
         ]
+        nonlocal current_dialog
+        current_dialog = dialog
         dialog.open = True
         page.update()
 
@@ -149,6 +166,8 @@ def main_page(page: ft.Page):
                 "Create", on_click=on_create, height=theme["BUTTON_HEIGHT"]
             ),
         ]
+        nonlocal current_dialog
+        current_dialog = dialog
         dialog.open = True
         page.update()
 
@@ -350,10 +369,33 @@ def main_page(page: ft.Page):
             # Update sidebar highlight on tab selection
             refresh_sidebar()
 
+    # Fullscreen toggle logic
+    def toggle_fullscreen(e):
+        page.window.full_screen = not page.window.full_screen
+        page.update()
+
+    fullscreen_icon = ft.Container(
+        content=ft.IconButton(
+            icon=ft.Icons.FULLSCREEN,
+            tooltip="Toggle Fullscreen",
+            on_click=toggle_fullscreen,
+            icon_size=theme["FULLSCREEN_BTN_ICON_SIZE"],
+            style=ft.ButtonStyle(
+                shape=ft.RoundedRectangleBorder(radius=theme["BORDER_RADIUS"]),
+                bgcolor=theme["HEADER_BG"],
+                icon_color=theme["SEARCH_COLOR"],
+                padding=theme["FULLSCREEN_BTN_PADDING"],
+            ),
+        ),
+        height=theme["FULLSCREEN_BTN_HEIGHT"],
+        width=theme["FULLSCREEN_BTN_WIDTH"],
+        alignment=ft.alignment.center,
+    )
+
     header = ft.Container(
         content=ft.Row(
             [
-                # Add more features here at the beginning as needed
+                fullscreen_icon,
                 ft.TextField(
                     hint_text=theme["SEARCH_HINT"],
                     width=theme["SEARCH_WIDTH"],
@@ -487,6 +529,8 @@ def main_page(page: ft.Page):
                 style=ft.ButtonStyle(bgcolor=theme["ERROR_COLOR"]),
             ),
         ]
+        nonlocal current_dialog
+        current_dialog = dialog
         dialog.open = True
         page.update()
 
@@ -522,6 +566,8 @@ def main_page(page: ft.Page):
                 style=ft.ButtonStyle(bgcolor=theme["ERROR_COLOR"]),
             ),
         ]
+        nonlocal current_dialog
+        current_dialog = dialog
         dialog.open = True
         page.update()
 
@@ -573,6 +619,126 @@ def main_page(page: ft.Page):
             ft.TextButton("Cancel", on_click=close_dialog),
             ft.TextButton("Create", on_click=validate_and_create_folder),
         ]
+        nonlocal current_dialog
+        current_dialog = dialog
+        dialog.open = True
+        page.update()
+
+    def on_rename_file(folder, old_filename):
+        name_field = ft.TextField(
+            width=200,
+            label="New file name",
+            value=old_filename.replace(".md", ""),
+            autofocus=True,
+        )
+        error_text = ft.Text("", color=theme["ERROR_COLOR"], size=12)
+
+        def on_rename(_):
+            new_name = name_field.value or ""
+            # Validate new name (exclude the old filename from the check)
+            files = list_markdown_files(folder)
+            if new_name.endswith(".md"):
+                new_filename = new_name
+            else:
+                new_filename = new_name + ".md"
+            if not new_name or not new_name.strip():
+                error_text.value = "Name cannot be empty."
+                page.update()
+                return
+            if new_filename in files and new_filename != old_filename:
+                error_text.value = "File with this name already exists."
+                page.update()
+                return
+            if any(c in new_name for c in '/\\:*?"<>|'):
+                error_text.value = "Invalid file name."
+                page.update()
+                return
+            from backend.files_manager import rename_markdown_file
+
+            try:
+                rename_markdown_file(folder, old_filename, new_filename)
+                dialog.open = False
+                show_success(f"File renamed to '{new_filename}'")
+                # If the file is currently open, update the tab
+                if file_name.current == old_filename and file_folder.current == folder:
+                    file_name.current = new_filename
+                    update_tabs()
+                refresh_sidebar()
+                page.update()
+            except Exception as ex:
+                show_error(f"Error renaming file: {ex}")
+
+        dialog.title = ft.Text(f"Rename File")
+        dialog.content = ft.Container(
+            content=ft.Column([name_field, error_text], spacing=theme["SPACING_MD"]),
+            width=theme.get("DIALOG_WIDTH"),
+            height=theme.get("DIALOG_HEIGHT"),
+            alignment=theme.get("DIALOG_ALIGNMENT"),
+        )
+        dialog.actions = [
+            ft.TextButton("Cancel", on_click=close_dialog),
+            ft.ElevatedButton(
+                "Rename", on_click=on_rename, height=theme["BUTTON_HEIGHT"]
+            ),
+        ]
+        nonlocal current_dialog
+        current_dialog = dialog
+        dialog.open = True
+        page.update()
+
+    def on_rename_folder(folder_path):
+        # Extract folder name from path (e.g., "Notebooks/Archive" -> "Archive")
+        folder_name = folder_path.split("/")[-1]
+        name_field = ft.TextField(
+            width=200,
+            label="New folder name",
+            value=folder_name,
+            autofocus=True,
+        )
+        error_text = ft.Text("", color=theme["ERROR_COLOR"], size=12)
+
+        def on_rename(_):
+            new_name = name_field.value or ""
+            # Validate new name
+            if not new_name or not new_name.strip():
+                error_text.value = "Name cannot be empty."
+                page.update()
+                return
+            # Check if folder with this name already exists in the same parent
+            parent_path = (
+                "/".join(folder_path.split("/")[:-1]) if "/" in folder_path else None
+            )
+            err = validate_folder_name(new_name, parent_path)
+            if err and new_name != folder_name:
+                error_text.value = err
+                page.update()
+                return
+            from backend.files_manager import rename_folder
+
+            try:
+                rename_folder(folder_path, new_name)
+                dialog.open = False
+                show_success(f"Folder renamed to '{new_name}'")
+                refresh_sidebar()
+                page.update()
+            except Exception as ex:
+                show_error(f"Error renaming folder: {ex}")
+
+        dialog.title = ft.Text(f"Rename Folder")
+        dialog.content = ft.Container(
+            content=ft.Column([name_field, error_text], spacing=theme["SPACING_MD"]),
+            width=theme.get("DIALOG_WIDTH"),
+            height=theme.get("DIALOG_HEIGHT"),
+            alignment=theme.get("DIALOG_ALIGNMENT"),
+        )
+        dialog.actions = [
+            ft.TextButton("Cancel", on_click=close_dialog),
+            ft.ElevatedButton(
+                "Rename", on_click=on_rename, height=theme["BUTTON_HEIGHT"]
+            ),
+        ]
+        nonlocal current_dialog
+        current_dialog = dialog
         dialog.open = True
         page.update()
 
@@ -591,6 +757,8 @@ def main_page(page: ft.Page):
             on_create_subfolder=on_create_subfolder,
             on_create_file=on_create_file,
             on_toggle_folder=on_toggle_folder,
+            on_rename_file=on_rename_file,
+            on_rename_folder=on_rename_folder,
             current_file=file_name.current,
             current_folder=file_folder.current,
         )
@@ -606,6 +774,8 @@ def main_page(page: ft.Page):
             on_create_subfolder=on_create_subfolder,
             on_create_file=on_create_file,
             on_toggle_folder=on_toggle_folder,
+            on_rename_file=on_rename_file,
+            on_rename_folder=on_rename_folder,
             current_file=file_name.current,
             current_folder=file_folder.current,
         ),
@@ -753,5 +923,7 @@ def main_page(page: ft.Page):
                 height=theme["BUTTON_HEIGHT"],
             ),
         ]
+        nonlocal current_dialog
+        current_dialog = dialog
         dialog.open = True
         page.update()

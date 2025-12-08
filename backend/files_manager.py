@@ -200,3 +200,44 @@ def rename_markdown_file(folder: str, old_filename: str, new_filename: str) -> N
     new_path = os.path.join(folder_path, new_filename)
     if os.path.exists(old_path):
         os.rename(old_path, new_path)
+        # Update .order.json
+        order = _ensure_order_file(folder_path)
+        for item in order["items"]:
+            if item["name"] == old_filename:
+                item["name"] = new_filename
+                break
+        _save_order(folder_path, order)
+
+
+def rename_folder(old_folder_path: str, new_folder_name: str) -> None:
+    """Rename a folder (top-level or nested) and update .order.json in parent directory.
+
+    Args:
+        old_folder_path: Path to the folder being renamed (e.g., "Notebooks" or "Notebooks/Archive")
+        new_folder_name: New name for the folder (just the name, not the full path)
+    """
+    # Determine the parent folder and the old folder name
+    if "/" in old_folder_path:
+        parts = old_folder_path.split("/")
+        parent_path = "/".join(parts[:-1])
+        old_folder_name = parts[-1]
+        parent_full_path = os.path.join(BASE_DIR, parent_path)
+    else:
+        # Top-level folder
+        old_folder_name = old_folder_path
+        parent_full_path = BASE_DIR
+
+    old_full_path = os.path.join(BASE_DIR, old_folder_path)
+    new_full_path = os.path.join(parent_full_path, new_folder_name)
+
+    # Rename the folder on filesystem
+    if os.path.exists(old_full_path):
+        os.rename(old_full_path, new_full_path)
+
+        # Update .order.json in parent directory
+        parent_order = _ensure_order_file(parent_full_path)
+        for item in parent_order["items"]:
+            if item["name"] == old_folder_name:
+                item["name"] = new_folder_name
+                break
+        _save_order(parent_full_path, parent_order)
