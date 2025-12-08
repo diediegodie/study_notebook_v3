@@ -241,3 +241,26 @@ def rename_folder(old_folder_path: str, new_folder_name: str) -> None:
                 item["name"] = new_folder_name
                 break
         _save_order(parent_full_path, parent_order)
+
+# Manual reorder for files in a folder
+def reorder_files(folder: str, new_order: list) -> None:
+    """Reorder files in the specified folder according to new_order (list of filenames)."""
+    folder_path = os.path.join(BASE_DIR, folder)
+    order = _ensure_order_file(folder_path)
+    # Only reorder files, keep folders in place
+    files = [item for item in order["items"] if item["type"] == "file"]
+    folders = [item for item in order["items"] if item["type"] == "folder"]
+    # Build new file order
+    name_to_item = {item["name"]: item for item in files}
+    new_file_items = [name_to_item[name] for name in new_order if name in name_to_item]
+    # Add any files not in new_order at the end (should not happen, but safe)
+    remaining = [item for item in files if item["name"] not in new_order]
+    new_file_items.extend(remaining)
+    # Merge folders and files, keeping folders in their original order
+    new_items = []
+    for item in order["items"]:
+        if item["type"] == "folder":
+            new_items.append(item)
+    new_items.extend(new_file_items)
+    order["items"] = new_items
+    _save_order(folder_path, order)

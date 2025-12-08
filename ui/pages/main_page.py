@@ -14,6 +14,10 @@ from backend.files_manager import (
 
 
 def main_page(page: ft.Page):
+    # Sidebar scroll position preservation
+    sidebar_column_ref = ft.Ref[ft.Column]()
+    # Persistent scroll offset for sidebar
+    prev_scroll_offset = 0
     # Global dialog reference for ESC handling
     current_dialog = None
 
@@ -188,7 +192,25 @@ def main_page(page: ft.Page):
     from backend.app_state import save_app_state, load_app_state
 
     app_state = load_app_state()
-    open_tabs = app_state.get("open_tabs", [])  # List of (folder, filename) tuples
+
+    # Deduplicate open_tabs and normalize folder paths (remove trailing slashes)
+    def normalize_tab(tab):
+        folder, filename = tab
+        folder = folder.rstrip("/") if isinstance(folder, str) else folder
+        return (folder, filename)
+
+    open_tabs_raw = app_state.get("open_tabs", [])
+    seen_tabs = set()
+    open_tabs = []
+    for tab in open_tabs_raw:
+        norm_tab = normalize_tab(tab)
+        if norm_tab not in seen_tabs:
+            open_tabs.append(norm_tab)
+            seen_tabs.add(norm_tab)
+    # Save deduplicated state back
+    from backend.app_state import save_app_state
+
+    save_app_state({"open_tabs": open_tabs})
     file_content = ft.Ref[ft.TextField]()
     file_name = ft.Ref[str]()
     file_folder = ft.Ref[str]()
@@ -326,21 +348,16 @@ def main_page(page: ft.Page):
 
     def open_file(folder, filename):
         instant_save()
-        tab = (folder, filename)
+        tab = normalize_tab((folder, filename))
         # Only add the tab if it does not already exist
         if tab not in open_tabs:
             open_tabs.append(tab)
-            from backend.app_state import save_app_state
-
             save_app_state({"open_tabs": open_tabs})
-        else:
-            # If already exists, do not add again
-            pass
         # Always set selected_tab_idx to the opened tab
         selected_tab_idx[0] = open_tabs.index(tab)
-        file_name.current = filename or ""
-        file_folder.current = folder or ""
-        content = read_markdown_file(folder, filename)
+        file_name.current = tab[1] or ""
+        file_folder.current = tab[0] or ""
+        content = read_markdown_file(tab[0], tab[1])
         file_content.current.value = content
         if getattr(file_content.current, "page", None) is not None:
             file_content.current.update()
@@ -748,6 +765,18 @@ def main_page(page: ft.Page):
 
     # Sidebar scrollable container
     def refresh_sidebar():
+        # Update persistent scroll offset before sidebar rebuild
+        nonlocal prev_scroll_offset
+        # Debug prints removed
+
+        def on_sidebar_scroll(e):
+            nonlocal prev_scroll_offset
+            if hasattr(e, "pixels"):
+                prev_scroll_offset = e.pixels
+
+        # Hide sidebar before update to mask flicker
+        sidebar_view.opacity = 0
+        sidebar_view.update()
         sidebar_view.content = sidebar(
             expanded_folders=expanded_folders,
             on_file_selected=open_file,
@@ -761,8 +790,31 @@ def main_page(page: ft.Page):
             on_rename_folder=on_rename_folder,
             current_file=file_name.current,
             current_folder=file_folder.current,
+            sidebar_column_ref=sidebar_column_ref,
+            on_sidebar_scroll=on_sidebar_scroll,
         )
         sidebar_view.update()
+        # Restore scroll offset after sidebar_column_ref is re-attached, with a longer delay and repeated attempts
+        import threading
+
+        max_attempts = 3
+        delay = 0.03  # 30ms, try to minimize blink
+
+        def restore_scroll(attempt=1):
+            if sidebar_column_ref.current is not None:
+                try:
+                    sidebar_column_ref.current.scroll_to(offset=prev_scroll_offset)
+                except Exception as e:
+                    pass
+                else:
+                    # After successful scroll restore, show sidebar again
+                    sidebar_view.opacity = 1
+                    sidebar_view.update()
+                    return  # Success
+            if attempt < max_attempts:
+                threading.Timer(delay, lambda: restore_scroll(attempt + 1)).start()
+
+        threading.Timer(delay, restore_scroll).start()
 
     sidebar_view = ft.Container(
         content=sidebar(
@@ -778,12 +830,15 @@ def main_page(page: ft.Page):
             on_rename_folder=on_rename_folder,
             current_file=file_name.current,
             current_folder=file_folder.current,
+            sidebar_column_ref=sidebar_column_ref,
         ),
         width=theme.get("SIDEBAR_WIDTH", 250),
         expand=False,
         bgcolor=theme.get("SIDEBAR_BG", "#CCCCCC"),
         padding=theme.get("SIDEBAR_PADDING", 8),
         border_radius=theme.get("BORDER_RADIUS", 6),
+        opacity=1,
+        animate_opacity=ft.Animation(150, ft.AnimationCurve.EASE_IN_OUT),
     )
 
     main_column = ft.Column(
@@ -901,7 +956,14 @@ def main_page(page: ft.Page):
             create_file(folder, file_name_val.replace(".md", ""))
 
             dialog.open = False
-            open_file(folder, file_name_val)
+            # Only open the tab if it does not already exist
+            tab = normalize_tab((folder, file_name_val))
+            if tab not in open_tabs:
+                open_file(folder, file_name_val)
+            else:
+                # If already exists, just select it
+                selected_tab_idx[0] = open_tabs.index(tab)
+                update_tabs()
             refresh_sidebar()
             page.update()
 
