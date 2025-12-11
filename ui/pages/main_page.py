@@ -386,49 +386,196 @@ def main_page(page: ft.Page):
             # Update sidebar highlight on tab selection
             refresh_sidebar()
 
-    # Fullscreen toggle logic
-    def toggle_fullscreen(e):
-        page.window.full_screen = not page.window.full_screen
+    # State to track window size and maximize state
+    # TASKBAR_OFFSET: accounts for OS taskbar when window is not maximized
+    TASKBAR_OFFSET = 100
+    window_state = {
+        "is_half_size": False,
+        "is_maximized": False,
+        "normal_width": 1600,
+        "normal_height": 900,
+        "max_height": 1080,  # Height when maximized (taskbar-aware)
+    }
+
+    # Toggle between maximized (1920x1080) and normal size (1600x900)
+    def on_maximize_window(_):
+        if window_state["is_maximized"]:
+            # Restore to normal size
+            page.window.maximized = False
+            page.window.width = window_state["normal_width"]
+            page.window.height = window_state["normal_height"]
+            window_state["is_maximized"] = False
+            window_state["is_half_size"] = False
+        else:
+            # Maximize to Full HD
+            page.window.maximized = True
+            page.window.width = 1920
+            page.window.height = 1080
+            window_state["is_maximized"] = True
+            window_state["is_half_size"] = False
+            # Capture the actual height after maximizing (accounts for taskbar)
+            page.run_task(_capture_max_height)
         page.update()
 
-    fullscreen_icon = ft.Container(
-        content=ft.IconButton(
-            icon=ft.Icons.FULLSCREEN,
-            tooltip="Toggle Fullscreen",
-            on_click=toggle_fullscreen,
-            icon_size=theme["FULLSCREEN_BTN_ICON_SIZE"],
-            style=ft.ButtonStyle(
-                shape=ft.RoundedRectangleBorder(radius=theme["BORDER_RADIUS"]),
-                bgcolor=theme["HEADER_BG"],
-                icon_color=theme["SEARCH_COLOR"],
-                padding=theme["FULLSCREEN_BTN_PADDING"],
-            ),
+    async def _capture_max_height():
+        """Capture the actual available height when maximized."""
+        import asyncio
+
+        await asyncio.sleep(0.1)  # Small delay for window to fully maximize
+        window_state["max_height"] = page.window.height
+
+    # Toggle between full/maximized size and half-size (960x1080)
+    def toggle_half_size(e):
+        # Exit maximized mode if in it
+        if window_state["is_maximized"]:
+            page.window.maximized = False
+            window_state["is_maximized"] = False
+
+        if window_state["is_half_size"]:
+            # Expand back to full size (use full max height)
+            page.window.width = 1920
+            page.window.height = window_state["max_height"]
+            window_state["is_half_size"] = False
+        else:
+            # Collapse to half size, subtract taskbar offset to prevent footer cutoff
+            page.window.width = 960
+            page.window.height = window_state["max_height"] - TASKBAR_OFFSET
+            window_state["is_half_size"] = True
+        page.update()
+
+    def on_close_window(_):
+        # Close the app window
+        page.window.close()
+
+    def on_minimize_window(_):
+        # Minimize to taskbar/dock
+        page.window.minimized = True
+        page.update()
+
+    def build_window_control(color, tooltip, handler):
+        return ft.Container(
+            width=theme["WINDOW_CONTROL_SIZE"],
+            height=theme["WINDOW_CONTROL_SIZE"],
+            bgcolor=color,
+            border=ft.border.all(1, theme["WINDOW_CONTROL_BORDER_COLOR"]),
+            border_radius=theme["WINDOW_CONTROL_SIZE"] // 2,
+            ink=True,
+            tooltip=tooltip,
+            on_click=handler,
+        )
+
+    def build_window_controls(opacity=1.0):
+        return ft.Row(
+            [
+                build_window_control(
+                    theme["WINDOW_CONTROL_MINIMIZE_BG"],
+                    "Minimize",
+                    on_minimize_window,
+                ),
+                build_window_control(
+                    theme["WINDOW_CONTROL_MAXIMIZE_BG"],
+                    "Maximize",
+                    on_maximize_window,
+                ),
+                build_window_control(
+                    theme["WINDOW_CONTROL_CLOSE_BG"],
+                    "Close",
+                    on_close_window,
+                ),
+            ],
+            spacing=theme["WINDOW_CONTROL_SPACING"],
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            opacity=opacity,
+        )
+
+    # Half-size toggle button
+    half_size_icon = ft.IconButton(
+        icon=ft.Icons.UNFOLD_MORE,
+        tooltip="Toggle Half Size",
+        on_click=toggle_half_size,
+        icon_size=theme["FULLSCREEN_BTN_ICON_SIZE"],
+        style=ft.ButtonStyle(
+            padding=theme["FULLSCREEN_BTN_PADDING"],
+            shape=ft.CircleBorder(),
         ),
-        height=theme["FULLSCREEN_BTN_HEIGHT"],
-        width=theme["FULLSCREEN_BTN_WIDTH"],
-        alignment=ft.alignment.center,
+    )
+
+    half_size_icon_placeholder = ft.IconButton(
+        icon=ft.Icons.UNFOLD_MORE,
+        disabled=True,
+        icon_size=theme["FULLSCREEN_BTN_ICON_SIZE"],
+        opacity=0,
+        style=ft.ButtonStyle(
+            padding=theme["FULLSCREEN_BTN_PADDING"],
+            shape=ft.CircleBorder(),
+        ),
+    )
+
+    window_controls = build_window_controls()
+    window_controls_placeholder = build_window_controls(opacity=0)
+
+    search_field = ft.TextField(
+        hint_text=theme["SEARCH_HINT"],
+        width=theme["SEARCH_WIDTH"],
+        bgcolor=theme["SEARCH_BG"],
+        border_color=theme["SEARCH_BORDER_COLOR"],
+        color=theme["SEARCH_COLOR"],
+        border_radius=theme["SEARCH_BORDER_RADIUS"],
+        filled=theme["SEARCH_FILLED"],
+        text_align=theme["SEARCH_TEXT_ALIGN"],
+        text_size=theme["SEARCH_FONT_SIZE"],
+        text_vertical_align=theme["SEARCH_TEXT_VERTICAL_ALIGN"],
+    )
+
+    left_cluster = ft.Container(
+        expand=1,
+        padding=ft.Padding(theme["HEADER_PADDING"], 0, 0, 0),
+        content=ft.Row(
+            [
+                half_size_icon_placeholder,
+                window_controls_placeholder,
+            ],
+            spacing=theme["SPACING_SM"],
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            alignment=ft.MainAxisAlignment.START,
+        ),
+    )
+
+    right_cluster = ft.Container(
+        expand=1,
+        padding=ft.Padding(0, 0, theme["WINDOW_CONTROL_EDGE_PADDING"], 0),
+        content=ft.Row(
+            [
+                half_size_icon,
+                window_controls,
+            ],
+            spacing=theme["SPACING_SM"],
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            alignment=ft.MainAxisAlignment.END,
+        ),
     )
 
     header = ft.Container(
         content=ft.Row(
             [
-                fullscreen_icon,
-                ft.TextField(
-                    hint_text=theme["SEARCH_HINT"],
-                    width=theme["SEARCH_WIDTH"],
-                    bgcolor=theme["SEARCH_BG"],
-                    border_color=theme["SEARCH_BORDER_COLOR"],
-                    color=theme["SEARCH_COLOR"],
-                    border_radius=theme["SEARCH_BORDER_RADIUS"],
-                    filled=theme["SEARCH_FILLED"],
-                    text_align=theme["SEARCH_TEXT_ALIGN"],
-                    text_size=theme["SEARCH_FONT_SIZE"],
-                    text_vertical_align=theme["SEARCH_TEXT_VERTICAL_ALIGN"],
+                left_cluster,
+                ft.Container(
+                    content=search_field,
+                    alignment=ft.alignment.center,
+                    padding=ft.Padding(theme["SPACING_SM"], 0, theme["SPACING_SM"], 0),
                 ),
+                right_cluster,
             ],
-            alignment=ft.MainAxisAlignment.END,
+            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            spacing=theme["SPACING_LG"],
         ),
-        padding=theme["HEADER_PADDING"],
+        padding=ft.Padding(
+            theme["HEADER_PADDING"],
+            theme["HEADER_PADDING"],
+            0,
+            theme["HEADER_PADDING"],
+        ),
         bgcolor=theme["HEADER_BG"],
         alignment=theme["HEADER_ALIGNMENT"],
         height=theme["HEADER_HEIGHT"],
