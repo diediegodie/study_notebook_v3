@@ -1,6 +1,5 @@
 import os
 import json
-from typing import Any
 
 STATE_FILE = os.path.join(os.path.dirname(__file__), "../app_state.json")
 

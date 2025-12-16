@@ -242,6 +242,7 @@ def rename_folder(old_folder_path: str, new_folder_name: str) -> None:
                 break
         _save_order(parent_full_path, parent_order)
 
+
 # Manual reorder for files in a folder
 def reorder_files(folder: str, new_order: list) -> None:
     """Reorder files in the specified folder according to new_order (list of filenames)."""
@@ -249,7 +250,6 @@ def reorder_files(folder: str, new_order: list) -> None:
     order = _ensure_order_file(folder_path)
     # Only reorder files, keep folders in place
     files = [item for item in order["items"] if item["type"] == "file"]
-    folders = [item for item in order["items"] if item["type"] == "folder"]
     # Build new file order
     name_to_item = {item["name"]: item for item in files}
     new_file_items = [name_to_item[name] for name in new_order if name in name_to_item]
@@ -262,5 +262,37 @@ def reorder_files(folder: str, new_order: list) -> None:
         if item["type"] == "folder":
             new_items.append(item)
     new_items.extend(new_file_items)
+    order["items"] = new_items
+    _save_order(folder_path, order)
+
+
+def reorder_items(parent_folder: str, new_order: list) -> None:
+    """Reorder both files and folders in the specified parent folder.
+
+    Args:
+        parent_folder: Parent folder path (e.g., "" for root, "Notebooks" for nested)
+        new_order: List of item names in desired order (both files and folders)
+    """
+    if parent_folder == "":
+        folder_path = BASE_DIR
+    else:
+        folder_path = os.path.join(BASE_DIR, parent_folder)
+
+    order = _ensure_order_file(folder_path)
+
+    # Build a map of name to item
+    name_to_item = {item["name"]: item for item in order["items"]}
+
+    # Build new order based on new_order list
+    new_items = []
+    for name in new_order:
+        if name in name_to_item:
+            new_items.append(name_to_item[name])
+
+    # Add any items not in new_order at the end (safety fallback)
+    for item in order["items"]:
+        if item["name"] not in new_order:
+            new_items.append(item)
+
     order["items"] = new_items
     _save_order(folder_path, order)

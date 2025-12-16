@@ -1,6 +1,7 @@
 import flet as ft
 from ui.themes.theme import theme
 import sys
+from typing import Optional
 
 sys.path.append("../../backend")
 from backend.files_manager import (
@@ -11,6 +12,10 @@ from backend.files_manager import (
     create_folder,
     delete_folder,
 )
+from ui.widgets.header_footer import build_header, build_footer
+from ui.widgets.tabs import TabsBar
+from ui.containers.main_content import MainContent
+from ui.state.window_state import WindowState
 
 
 def main_page(page: ft.Page):
@@ -91,11 +96,11 @@ def main_page(page: ft.Page):
 
     def open_create_folder_dialog(parent=None):
         name_field = ft.TextField(
-            width=200,
+            width=theme["DIALOG_INPUT_WIDTH_SM"],
             label="Folder name",
             autofocus=True,
         )
-        error_text = ft.Text("", color=theme["ERROR_COLOR"], size=12)
+        error_text = ft.Text("", color=theme["ERROR_COLOR"], size=theme["ERROR_TEXT_SIZE"])
 
         def on_create(_):
             folder_name = name_field.value or ""
@@ -136,25 +141,31 @@ def main_page(page: ft.Page):
 
     def open_create_file_dialog(folder):
         name_field = ft.TextField(
-            width=200,
+            width=theme["DIALOG_INPUT_WIDTH_SM"],
             label="File name",
             autofocus=True,
         )
-        error_text = ft.Text("", color=theme["ERROR_COLOR"], size=12)
+        error_text = ft.Text("", color=theme["ERROR_COLOR"], size=theme["ERROR_TEXT_SIZE"])
 
         def on_create(_):
-            file_name = name_field.value or ""
-            err = validate_file_name(file_name, folder)
+            file_name_val = name_field.value or ""
+            err = validate_file_name(file_name_val, folder)
             if err:
                 error_text.value = err
                 page.update()
                 return
             from backend.files_manager import create_file
 
-            create_file(str(folder), str(file_name))
+            # Add .md extension if not present
+            if not file_name_val.endswith(".md"):
+                file_name_val += ".md"
+
+            create_file(str(folder), str(file_name_val.replace(".md", "")))
             dialog.open = False
             show_success("File created.")
             refresh_sidebar()
+            # Open the created file
+            open_file(folder, file_name_val)
             page.update()
 
         dialog.title = ft.Text(f"Create File in {folder}")
@@ -193,6 +204,16 @@ def main_page(page: ft.Page):
 
     app_state = load_app_state()
 
+    def update_app_state(**updates):
+        """Merge updates into persisted app state.
+
+        This avoids overwriting unrelated keys when we persist open tabs or
+        last opened file.
+        """
+        nonlocal app_state
+        app_state.update(updates)
+        save_app_state(app_state)
+
     # Deduplicate open_tabs and normalize folder paths (remove trailing slashes)
     def normalize_tab(tab):
         folder, filename = tab
@@ -208,14 +229,15 @@ def main_page(page: ft.Page):
             open_tabs.append(norm_tab)
             seen_tabs.add(norm_tab)
     # Save deduplicated state back
-    from backend.app_state import save_app_state
-
-    save_app_state({"open_tabs": open_tabs})
-    file_content = ft.Ref[ft.TextField]()
+    update_app_state(open_tabs=open_tabs)
     file_name = ft.Ref[str]()
     file_folder = ft.Ref[str]()
     expanded_folders = {folder: False for folder in list_folders()}
+    reorder_mode = {"active": False}  # Use dict to allow mutation in nested functions
     selected_tab_idx = [0]
+
+    # Initialize window state
+    window_state = WindowState()
 
     # Dialog and snackbar controls
     snackbar_text = ft.Text("")
@@ -244,125 +266,25 @@ def main_page(page: ft.Page):
     page.controls.append(snackbar)
     page.controls.append(dialog)
 
-    from ui.widgets.sidebar import sidebar
-
-    def on_create_folder():
-        open_create_folder_dialog(parent=None)
-
-    def on_create_subfolder(parent):
-        open_create_folder_dialog(parent=parent)
-
-    def on_create_file(folder):
-        open_create_file_dialog(folder)
-
-    def show_snackbar(message, color=None):
-        snackbar_text.value = message
-        snackbar.bgcolor = color or theme["COLOR_PRIMARY"]
-        snackbar.open = True
-        page.update()
-
-    def update_tabs():
-        # Rebuild the custom tab row
-        tab_controls = []
-        # Guard: ensure selected_tab_idx[0] is valid
-        if open_tabs:
-            if selected_tab_idx[0] < 0 or selected_tab_idx[0] >= len(open_tabs):
-                selected_tab_idx[0] = 0
-        else:
-            selected_tab_idx[0] = -1
-        for idx, (folder, fn) in enumerate(open_tabs):
-            tab_controls.append(
-                ft.Container(
-                    content=ft.Row(
-                        [
-                            ft.Text(
-                                fn,
-                                size=theme["TAB_FONT_SIZE"],
-                                max_lines=1,
-                                overflow=ft.TextOverflow.ELLIPSIS,
-                                tooltip=fn,
-                                width=theme.get("TAB_MIN_WIDTH", 90),
-                                color=(
-                                    theme["SIDEBAR_HIGHLIGHT_COLOR"]
-                                    if idx == selected_tab_idx[0]
-                                    else theme["SIDEBAR_ITEM_COLOR"]
-                                ),
-                                weight=(
-                                    theme["SIDEBAR_HIGHLIGHT_WEIGHT"]
-                                    if idx == selected_tab_idx[0]
-                                    else None
-                                ),
-                            ),
-                            ft.IconButton(
-                                icon=ft.Icons.CLOSE,
-                                tooltip="Close tab",
-                                on_click=lambda e, i=idx: close_tab(i),
-                                icon_size=theme["ICON_SIZE_SM"],
-                                style=ft.ButtonStyle(padding=0, shape=None),
-                            ),
-                        ],
-                        spacing=0,
-                    ),
-                    bgcolor=(
-                        theme["SIDEBAR_HIGHLIGHT_BG"]
-                        if idx == selected_tab_idx[0]
-                        else theme["COLOR_BG_LIGHT"]
-                    ),
-                    padding=ft.Padding(*theme["TAB_CONTAINER_PADDING"]),
-                    border_radius=theme["BORDER_RADIUS"],
-                    on_click=lambda e, i=idx: select_tab(i),
-                    margin=ft.Margin(
-                        left=theme["TAB_CONTAINER_MARGIN"][0],
-                        top=theme["TAB_CONTAINER_MARGIN"][1],
-                        right=theme["TAB_CONTAINER_MARGIN"][2],
-                        bottom=theme["TAB_CONTAINER_MARGIN"][3],
-                    ),
-                )
-            )
-        # Add the + button
-        tab_controls.append(
-            ft.Container(
-                content=ft.IconButton(
-                    icon=ft.Icons.ADD,
-                    tooltip="New tab",
-                    on_click=lambda e: new_tab(),
-                    icon_size=theme["ICON_SIZE_LG"],
-                    alignment=ft.alignment.center,
-                    padding=0,
-                ),
-                width=theme["ICON_SIZE_XL"],
-                height=theme["ICON_SIZE_XL"],
-                padding=ft.Padding(0, 0, 0, 0),
-                border_radius=theme["ICON_SIZE_XL"] // 2,
-                margin=ft.Margin(0, 0, 0, 0),
-                alignment=ft.alignment.center,
-            )
-        )
-        # Layout guard: always at least one visible control
-        if not tab_controls:
-            tab_controls.append(ft.Container(expand=True))
-        # Use slice assignment to update Row controls
-        tab_row.content.controls[:] = tab_controls  # type: ignore
-        tab_row.content.update()  # type: ignore
-        main_layout.update()
-
     def open_file(folder, filename):
         instant_save()
         tab = normalize_tab((folder, filename))
         # Only add the tab if it does not already exist
         if tab not in open_tabs:
             open_tabs.append(tab)
-            save_app_state({"open_tabs": open_tabs})
+            update_app_state(open_tabs=open_tabs)
         # Always set selected_tab_idx to the opened tab
         selected_tab_idx[0] = open_tabs.index(tab)
         file_name.current = tab[1] or ""
         file_folder.current = tab[0] or ""
+        update_app_state(
+            last_opened={"folder": file_folder.current, "filename": file_name.current}
+        )
         content = read_markdown_file(tab[0], tab[1])
-        file_content.current.value = content
-        if getattr(file_content.current, "page", None) is not None:
-            file_content.current.update()
-        update_tabs()
-        main_column.controls[1] = get_main_content_view()
+        main_content_component.set_content(content)
+        main_content_component.update()
+        tabs_bar.update()
+        main_column.controls[1] = main_content_component.get_view(file_name.current)
         if getattr(main_column, "page", None) is not None:
             main_column.update()
         # Ensure sidebar reflects the newly opened file immediately
@@ -375,291 +297,95 @@ def main_page(page: ft.Page):
             folder, filename = open_tabs[index]
             file_name.current = filename or ""
             file_folder.current = folder or ""
+            update_app_state(
+                last_opened={
+                    "folder": file_folder.current,
+                    "filename": file_name.current,
+                }
+            )
             content = read_markdown_file(folder, filename)
-            file_content.current.value = content
-            if getattr(file_content.current, "page", None) is not None:
-                file_content.current.update()
-            update_tabs()
-            main_column.controls[1] = get_main_content_view()
+            main_content_component.set_content(content)
+            main_content_component.update()
+            tabs_bar.update()
+            main_column.controls[1] = main_content_component.get_view(file_name.current)
             if getattr(main_column, "page", None) is not None:
                 main_column.update()
             # Update sidebar highlight on tab selection
             refresh_sidebar()
 
-    # State to track window size and maximize state
-    # TASKBAR_OFFSET: accounts for OS taskbar when window is not maximized
-    TASKBAR_OFFSET = 100
-    window_state = {
-        "is_half_size": False,
-        "is_maximized": False,
-        "normal_width": 1600,
-        "normal_height": 900,
-        "max_height": 1080,  # Height when maximized (taskbar-aware)
-    }
-
-    # Toggle between maximized (1920x1080) and normal size (1600x900)
-    def on_maximize_window(_):
-        if window_state["is_maximized"]:
-            # Restore to normal size
-            page.window.maximized = False
-            page.window.width = window_state["normal_width"]
-            page.window.height = window_state["normal_height"]
-            window_state["is_maximized"] = False
-            window_state["is_half_size"] = False
-        else:
-            # Maximize to Full HD
-            page.window.maximized = True
-            page.window.width = 1920
-            page.window.height = 1080
-            window_state["is_maximized"] = True
-            window_state["is_half_size"] = False
-            # Capture the actual height after maximizing (accounts for taskbar)
-            page.run_task(_capture_max_height)
-        page.update()
-
-    async def _capture_max_height():
-        """Capture the actual available height when maximized."""
-        import asyncio
-
-        await asyncio.sleep(0.1)  # Small delay for window to fully maximize
-        window_state["max_height"] = page.window.height
-
-    # Toggle between full/maximized size and half-size (960x1080)
-    def toggle_half_size(e):
-        # Exit maximized mode if in it
-        if window_state["is_maximized"]:
-            page.window.maximized = False
-            window_state["is_maximized"] = False
-
-        if window_state["is_half_size"]:
-            # Expand back to full size (use full max height)
-            page.window.width = 1920
-            page.window.height = window_state["max_height"]
-            window_state["is_half_size"] = False
-        else:
-            # Collapse to half size, subtract taskbar offset to prevent footer cutoff
-            page.window.width = 960
-            page.window.height = window_state["max_height"] - TASKBAR_OFFSET
-            window_state["is_half_size"] = True
-        page.update()
-
-    def on_close_window(_):
-        # Close the app window
-        page.window.close()
-
+    # Window control handlers
     def on_minimize_window(_):
-        # Minimize to taskbar/dock
+        """Minimize the window to taskbar/dock."""
         page.window.minimized = True
         page.update()
 
-    def build_window_control(color, tooltip, handler):
-        return ft.Container(
-            width=theme["WINDOW_CONTROL_SIZE"],
-            height=theme["WINDOW_CONTROL_SIZE"],
-            bgcolor=color,
-            border=ft.border.all(1, theme["WINDOW_CONTROL_BORDER_COLOR"]),
-            border_radius=theme["WINDOW_CONTROL_SIZE"] // 2,
-            ink=True,
-            tooltip=tooltip,
-            on_click=handler,
-        )
+    def on_maximize_window(_):
+        """Toggle between maximized and normal window size."""
+        window_state.toggle_maximize(page)
 
-    def build_window_controls(opacity=1.0):
-        return ft.Row(
-            [
-                build_window_control(
-                    theme["WINDOW_CONTROL_MINIMIZE_BG"],
-                    "Minimize",
-                    on_minimize_window,
-                ),
-                build_window_control(
-                    theme["WINDOW_CONTROL_MAXIMIZE_BG"],
-                    "Maximize",
-                    on_maximize_window,
-                ),
-                build_window_control(
-                    theme["WINDOW_CONTROL_CLOSE_BG"],
-                    "Close",
-                    on_close_window,
-                ),
-            ],
-            spacing=theme["WINDOW_CONTROL_SPACING"],
-            vertical_alignment=ft.CrossAxisAlignment.CENTER,
-            opacity=opacity,
-        )
+    def on_close_window(_):
+        """Close the application window."""
+        page.window.close()
 
-    # Half-size toggle button
-    half_size_icon = ft.IconButton(
-        icon=ft.Icons.UNFOLD_MORE,
-        tooltip="Toggle Half Size",
-        on_click=toggle_half_size,
-        icon_size=theme["FULLSCREEN_BTN_ICON_SIZE"],
-        style=ft.ButtonStyle(
-            padding=theme["FULLSCREEN_BTN_PADDING"],
-            shape=ft.CircleBorder(),
-        ),
+    def on_page_resized(e: ft.WindowResizeEvent):
+        """Handle window resize events."""
+        window_state.on_window_resized(e)
+
+    page.on_resized = on_page_resized
+
+    def toggle_half_size(_):
+        """Toggle between full/maximized size and half-size snap."""
+        window_state.toggle_half_size(page)
+
+    # Build header using new modular component
+    header = build_header(
+        page,
+        on_minimize=on_minimize_window,
+        on_maximize=on_maximize_window,
+        on_close=on_close_window,
+        on_half_size=toggle_half_size,
+        on_search_change=None,  # Implement search functionality later
     )
 
-    half_size_icon_placeholder = ft.IconButton(
-        icon=ft.Icons.UNFOLD_MORE,
-        disabled=True,
-        icon_size=theme["FULLSCREEN_BTN_ICON_SIZE"],
-        opacity=0,
-        style=ft.ButtonStyle(
-            padding=theme["FULLSCREEN_BTN_PADDING"],
-            shape=ft.CircleBorder(),
-        ),
+    # Create TabsBar instance with callbacks
+    def on_select_tab_callback(idx):
+        """Handle tab selection."""
+        select_tab(idx)
+
+    def on_close_tab_callback(idx):
+        """Handle tab closure."""
+        close_tab(idx)
+
+    def on_new_tab_callback():
+        """Handle new tab creation."""
+        new_tab()
+
+    tabs_bar = TabsBar(
+        open_tabs=open_tabs,
+        selected_idx=selected_tab_idx,
+        on_select_tab=on_select_tab_callback,
+        on_close_tab=on_close_tab_callback,
+        on_new_tab=on_new_tab_callback,
     )
 
-    window_controls = build_window_controls()
-    window_controls_placeholder = build_window_controls(opacity=0)
-
-    search_field = ft.TextField(
-        hint_text=theme["SEARCH_HINT"],
-        width=theme["SEARCH_WIDTH"],
-        bgcolor=theme["SEARCH_BG"],
-        border_color=theme["SEARCH_BORDER_COLOR"],
-        color=theme["SEARCH_COLOR"],
-        border_radius=theme["SEARCH_BORDER_RADIUS"],
-        filled=theme["SEARCH_FILLED"],
-        text_align=theme["SEARCH_TEXT_ALIGN"],
-        text_size=theme["SEARCH_FONT_SIZE"],
-        text_vertical_align=theme["SEARCH_TEXT_VERTICAL_ALIGN"],
-    )
-
-    left_cluster = ft.Container(
-        expand=1,
-        padding=ft.Padding(theme["HEADER_PADDING"], 0, 0, 0),
-        content=ft.Row(
-            [
-                half_size_icon_placeholder,
-                window_controls_placeholder,
-            ],
-            spacing=theme["SPACING_SM"],
-            vertical_alignment=ft.CrossAxisAlignment.CENTER,
-            alignment=ft.MainAxisAlignment.START,
-        ),
-    )
-
-    right_cluster = ft.Container(
-        expand=1,
-        padding=ft.Padding(0, 0, theme["WINDOW_CONTROL_EDGE_PADDING"], 0),
-        content=ft.Row(
-            [
-                half_size_icon,
-                window_controls,
-            ],
-            spacing=theme["SPACING_SM"],
-            vertical_alignment=ft.CrossAxisAlignment.CENTER,
-            alignment=ft.MainAxisAlignment.END,
-        ),
-    )
-
-    header = ft.Container(
-        content=ft.Row(
-            [
-                left_cluster,
-                ft.Container(
-                    content=search_field,
-                    alignment=ft.alignment.center,
-                    padding=ft.Padding(theme["SPACING_SM"], 0, theme["SPACING_SM"], 0),
-                ),
-                right_cluster,
-            ],
-            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-            vertical_alignment=ft.CrossAxisAlignment.CENTER,
-            spacing=theme["SPACING_LG"],
-        ),
-        padding=ft.Padding(
-            theme["HEADER_PADDING"],
-            theme["HEADER_PADDING"],
-            0,
-            theme["HEADER_PADDING"],
-        ),
-        bgcolor=theme["HEADER_BG"],
-        alignment=theme["HEADER_ALIGNMENT"],
-        height=theme["HEADER_HEIGHT"],
-        border_radius=theme["BORDER_RADIUS"],
-    )
-
-    tab_row = ft.Container(
-        content=ft.Row(
-            [],
-            alignment=theme.get("TAB_ROW_ALIGNMENT", ft.MainAxisAlignment.START),
-            spacing=theme["SPACING_XS"],
-            height=theme["TAB_ROW_HEIGHT"],
-            scroll=ft.ScrollMode.AUTO,
-        ),
-        bgcolor=None,
-        padding=theme.get("TAB_ROW_PADDING"),
-        expand=False,
-    )
-    # noinspection PyUnresolvedReference
+    # Create the tab row container
+    tab_row = tabs_bar.container
 
     def instant_save(e=None):
         if file_name.current and file_folder.current:
-            current_content = file_content.current.value or ""
+            current_content = main_content_component.get_content()
             save_markdown_file(
                 file_folder.current,
                 file_name.current,
                 current_content,
             )
         # Persist open tabs only
-        save_app_state({"open_tabs": open_tabs})
+        update_app_state(open_tabs=open_tabs)
 
-    file_content.current = ft.TextField(
-        value="",
-        multiline=True,
-        min_lines=1,
-        max_lines=None,
-        expand=True,
-        border_radius=theme["BORDER_RADIUS"],
-        bgcolor=theme["MAIN_CONTENT_BG"],
-        color=theme["MAIN_CONTENT_COLOR"],
-        text_size=theme["MAIN_CONTENT_FONT_SIZE"],
-        text_align=ft.TextAlign.LEFT,
-        on_change=instant_save,
-    )
-
-    def get_main_content_view():
-        if not file_name.current:
-            # Layout guard: always at least one visible control
-            return ft.Container(
-                expand=True,
-                bgcolor=theme["MAIN_CONTENT_BG"],
-                padding=theme["MAIN_CONTENT_PADDING"],
-                margin=theme.get("MAIN_CONTENT_MARGIN", theme["SPACING_XS"]),
-                border_radius=theme["BORDER_RADIUS"],
-                content=ft.Container(expand=True),
-            )  # Empty container when no file is open
-
-        return ft.Container(
-            content=ft.Column(
-                [
-                    ft.Container(
-                        content=file_content.current,
-                        expand=True,
-                        border_radius=theme["BORDER_RADIUS"],
-                    )
-                ],
-                alignment=ft.MainAxisAlignment.START,
-                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                expand=True,
-            ),
-            expand=True,
-            bgcolor=theme["MAIN_CONTENT_BG"],
-            padding=theme["MAIN_CONTENT_PADDING"],
-            # Add top margin to avoid overlap with tab row
-            margin=ft.Margin(0, theme["SPACING_XS"], 0, 0),
-            border_radius=theme["BORDER_RADIUS"],
-        )
-
-    main_content_view = get_main_content_view()
+    # Initialize main content with instant save callback
+    main_content_component = MainContent(on_change=instant_save)
 
     from ui.widgets.sidebar import sidebar
-
-    # Store sidebar container for real-time updates
-    from ui.widgets.sidebar import sidebar as sidebar_component
 
     def on_delete_file(folder, filename):
         def do_delete_file(_):
@@ -735,67 +461,14 @@ def main_page(page: ft.Page):
         dialog.open = True
         page.update()
 
-    def show_create_folder_dialog(_=None):
-        folder_name_field = ft.TextField(
-            label="Folder Name",
-            hint_text="Enter new folder name",
-            autofocus=True,
-            width=theme.get("FOLDER_NAME_FIELD_WIDTH", 180),
-        )
-        error_text = ft.Text("", color=theme["ERROR_COLOR"], size=theme["FONT_SIZE_SM"])
-
-        def validate_and_create_folder(_):
-            name = (folder_name_field.value or "").strip()
-            if not name:
-                error_text.value = "Folder name required."
-                dialog.update()
-                return
-            if name in list_folders():
-                error_text.value = "Folder already exists."
-                dialog.update()
-                return
-            try:
-                create_folder(name)
-            except Exception as ex:
-                error_text.value = f"Error: {ex}"
-                dialog.update()
-                return
-            dialog.open = False
-            expanded_folders[name] = True
-            refresh_sidebar()
-            show_snackbar(f"Created folder '{name}'", color=theme["SUCCESS_COLOR"])
-
-        dialog.title = ft.Text("Create Folder")
-        dialog.content = ft.Container(
-            content=ft.Column(
-                [
-                    folder_name_field,
-                    error_text,
-                ],
-                tight=True,
-                spacing=theme["SPACING_MD"],
-            ),
-            width=theme.get("DIALOG_WIDTH"),
-            height=theme.get("DIALOG_HEIGHT"),
-            alignment=theme.get("DIALOG_ALIGNMENT"),
-        )
-        dialog.actions = [
-            ft.TextButton("Cancel", on_click=close_dialog),
-            ft.TextButton("Create", on_click=validate_and_create_folder),
-        ]
-        nonlocal current_dialog
-        current_dialog = dialog
-        dialog.open = True
-        page.update()
-
     def on_rename_file(folder, old_filename):
         name_field = ft.TextField(
-            width=200,
+            width=theme["RENAME_INPUT_WIDTH"],
             label="New file name",
             value=old_filename.replace(".md", ""),
             autofocus=True,
         )
-        error_text = ft.Text("", color=theme["ERROR_COLOR"], size=12)
+        error_text = ft.Text("", color=theme["ERROR_COLOR"], size=theme["ERROR_TEXT_SIZE"])
 
         def on_rename(_):
             new_name = name_field.value or ""
@@ -821,18 +494,50 @@ def main_page(page: ft.Page):
 
             try:
                 rename_markdown_file(folder, old_filename, new_filename)
+                # Update open tabs to reflect the new filename
+                for idx, tab in enumerate(open_tabs):
+                    if tab == (folder, old_filename):
+                        open_tabs[idx] = (folder, new_filename)
+                # Keep persisted state consistent
+                last = app_state.get("last_opened") or {}
+                if (
+                    last.get("folder") == folder
+                    and last.get("filename") == old_filename
+                ):
+                    update_app_state(
+                        open_tabs=open_tabs,
+                        last_opened={"folder": folder, "filename": new_filename},
+                    )
+                else:
+                    update_app_state(open_tabs=open_tabs)
+
                 dialog.open = False
                 show_success(f"File renamed to '{new_filename}'")
-                # If the file is currently open, update the tab
+
+                # If the file is currently open, update references and refresh UI
                 if file_name.current == old_filename and file_folder.current == folder:
                     file_name.current = new_filename
-                    update_tabs()
+                    update_app_state(
+                        last_opened={
+                            "folder": file_folder.current,
+                            "filename": file_name.current,
+                        }
+                    )
+                    tabs_bar.update()
+                    main_column.controls[1] = main_content_component.get_view(
+                        file_name.current
+                    )
+                    if getattr(main_column, "page", None) is not None:
+                        main_column.update()
+                else:
+                    tabs_bar.update()
+
                 refresh_sidebar()
                 page.update()
             except Exception as ex:
                 show_error(f"Error renaming file: {ex}")
 
-        dialog.title = ft.Text(f"Rename File")
+        dialog.title = ft.Text("Rename File")
         dialog.content = ft.Container(
             content=ft.Column([name_field, error_text], spacing=theme["SPACING_MD"]),
             width=theme.get("DIALOG_WIDTH"),
@@ -854,12 +559,12 @@ def main_page(page: ft.Page):
         # Extract folder name from path (e.g., "Notebooks/Archive" -> "Archive")
         folder_name = folder_path.split("/")[-1]
         name_field = ft.TextField(
-            width=200,
+            width=theme["RENAME_INPUT_WIDTH"],
             label="New folder name",
             value=folder_name,
             autofocus=True,
         )
-        error_text = ft.Text("", color=theme["ERROR_COLOR"], size=12)
+        error_text = ft.Text("", color=theme["ERROR_COLOR"], size=theme["ERROR_TEXT_SIZE"])
 
         def on_rename(_):
             new_name = name_field.value or ""
@@ -881,14 +586,70 @@ def main_page(page: ft.Page):
 
             try:
                 rename_folder(folder_path, new_name)
+
+                # Build new folder path for open tabs
+                if "/" in folder_path:
+                    parent_path = folder_path.rsplit("/", 1)[0]
+                    new_folder_path = f"{parent_path}/{new_name}"
+                else:
+                    new_folder_path = new_name
+
+                # Update any open tabs that point to the renamed folder (including children)
+                for idx, tab in enumerate(open_tabs):
+                    tab_folder, tab_file = tab
+                    if tab_folder == folder_path:
+                        open_tabs[idx] = (new_folder_path, tab_file)
+                    elif tab_folder.startswith(folder_path + "/"):
+                        suffix = tab_folder[len(folder_path) :]
+                        open_tabs[idx] = (new_folder_path + suffix, tab_file)
+
+                # Update currently open file folder if it was inside the renamed folder
+                if file_folder.current:
+                    if file_folder.current == folder_path:
+                        file_folder.current = new_folder_path
+                    elif file_folder.current.startswith(folder_path + "/"):
+                        suffix = file_folder.current[len(folder_path) :]
+                        file_folder.current = new_folder_path + suffix
+
+                # Keep persisted state consistent
+                last = app_state.get("last_opened") or {}
+                last_folder_value = last.get("folder")
+                if last_folder_value == folder_path:
+                    update_app_state(
+                        open_tabs=open_tabs,
+                        last_opened={
+                            "folder": new_folder_path,
+                            "filename": last.get("filename"),
+                        },
+                    )
+                elif isinstance(
+                    last_folder_value, str
+                ) and last_folder_value.startswith(folder_path + "/"):
+                    suffix = last_folder_value[len(folder_path) :]
+                    update_app_state(
+                        open_tabs=open_tabs,
+                        last_opened={
+                            "folder": new_folder_path + suffix,
+                            "filename": last.get("filename"),
+                        },
+                    )
+                else:
+                    update_app_state(open_tabs=open_tabs)
+
                 dialog.open = False
                 show_success(f"Folder renamed to '{new_name}'")
+                tabs_bar.update()
+                main_column.controls[1] = main_content_component.get_view(
+                    file_name.current
+                )
+                if getattr(main_column, "page", None) is not None:
+                    main_column.update()
                 refresh_sidebar()
                 page.update()
             except Exception as ex:
                 show_error(f"Error renaming folder: {ex}")
 
-        dialog.title = ft.Text(f"Rename Folder")
+        dialog.title = ft.Text("Rename Folder")
         dialog.content = ft.Container(
             content=ft.Column([name_field, error_text], spacing=theme["SPACING_MD"]),
             width=theme.get("DIALOG_WIDTH"),
@@ -909,6 +670,58 @@ def main_page(page: ft.Page):
     def on_toggle_folder(folder):
         expanded_folders[folder] = not expanded_folders.get(folder, False)
         refresh_sidebar()
+
+    # Callback wrappers for sidebar integration
+    def on_create_folder():
+        open_create_folder_dialog(parent=None)
+
+    def on_create_subfolder(parent):
+        open_create_folder_dialog(parent=parent)
+
+    def on_create_file(folder):
+        open_create_file_dialog(folder)
+
+    def show_snackbar(message, color=None):
+        snackbar_text.value = message
+        snackbar.bgcolor = color or theme["COLOR_PRIMARY"]
+        snackbar.open = True
+        page.update()
+
+    def on_toggle_reorder_mode():
+        """Toggle reorder mode on/off."""
+        reorder_mode["active"] = not reorder_mode["active"]
+        mode_text = "enabled" if reorder_mode["active"] else "disabled"
+        show_snackbar(f"Reorder mode {mode_text}", color=theme.get("COLOR_PRIMARY"))
+        refresh_sidebar()
+
+    def on_reorder(parent_folder, item_name, target_item_name, insert_before=True):
+        """Handle reordering of items via drag and drop."""
+        from backend.files_manager import reorder_items, BASE_DIR, _ensure_order_file
+        import os
+
+        if parent_folder == "":
+            folder_path = BASE_DIR
+        else:
+            folder_path = os.path.join(BASE_DIR, parent_folder)
+
+        try:
+            order = _ensure_order_file(folder_path)
+            items = [i.get("name") for i in order.get("items", []) if i.get("name")]
+
+            if item_name in items:
+                items.remove(item_name)
+
+            if target_item_name in items:
+                target_idx = items.index(target_item_name)
+                insert_pos = target_idx if insert_before else target_idx + 1
+                items.insert(insert_pos, item_name)
+            else:
+                items.append(item_name)
+
+            reorder_items(parent_folder, items)
+            refresh_sidebar()
+        except Exception as ex:
+            show_snackbar(f"Error reordering: {ex}", color=theme["ERROR_COLOR"])
 
     # Sidebar scrollable container
     def refresh_sidebar():
@@ -939,6 +752,10 @@ def main_page(page: ft.Page):
             current_folder=file_folder.current,
             sidebar_column_ref=sidebar_column_ref,
             on_sidebar_scroll=on_sidebar_scroll,
+            reorder_mode=reorder_mode["active"],
+            on_toggle_reorder_mode=on_toggle_reorder_mode,
+            on_reorder=on_reorder,
+            page=page,
         )
         sidebar_view.update()
         # Restore scroll offset after sidebar_column_ref is re-attached, with a longer delay and repeated attempts
@@ -951,7 +768,7 @@ def main_page(page: ft.Page):
             if sidebar_column_ref.current is not None:
                 try:
                     sidebar_column_ref.current.scroll_to(offset=prev_scroll_offset)
-                except Exception as e:
+                except Exception:
                     pass
                 else:
                     # After successful scroll restore, show sidebar again
@@ -978,10 +795,14 @@ def main_page(page: ft.Page):
             current_file=file_name.current,
             current_folder=file_folder.current,
             sidebar_column_ref=sidebar_column_ref,
+            reorder_mode=reorder_mode["active"],
+            on_toggle_reorder_mode=on_toggle_reorder_mode,
+            on_reorder=on_reorder,
+            page=page,
         ),
         width=theme.get("SIDEBAR_WIDTH", 250),
         expand=False,
-        bgcolor=theme.get("SIDEBAR_BG", "#CCCCCC"),
+        bgcolor=theme["SIDEBAR_BG"],
         padding=theme.get("SIDEBAR_PADDING", 8),
         border_radius=theme.get("BORDER_RADIUS", 6),
         opacity=1,
@@ -991,9 +812,9 @@ def main_page(page: ft.Page):
     main_column = ft.Column(
         [
             tab_row,
-            main_content_view,
+            main_content_component.get_view(file_name.current),
         ],
-        spacing=0,
+        spacing=theme["ZERO_SPACING"],
         expand=True,
     )
 
@@ -1007,52 +828,68 @@ def main_page(page: ft.Page):
         expand=True,
     )
 
+    # Build footer using new modular component
+    footer = build_footer()
+
     # Compose the page: header (top), main_layout (row), footer (bottom)
     page.add(
         header,
         main_layout,
-        ft.Container(
-            content=ft.Text(
-                "© 2025 Study Notebook - by Diego Rodriguez.",
-                size=theme["FOOTER_FONT_SIZE"],
-                color=theme["FOOTER_COLOR"],
-            ),
-            padding=theme["FOOTER_PADDING"],
-            bgcolor=theme["FOOTER_BG"],
-            alignment=theme["FOOTER_ALIGNMENT"],
-            height=theme["FOOTER_HEIGHT"],
-            border_radius=theme["BORDER_RADIUS"],
-        ),
+        footer,
     )
     # Initial sidebar build
     refresh_sidebar()
-    update_tabs()
+    tabs_bar.update()
+
+    def _auto_open_startup_file():
+        """Open the last opened file on startup only if app was closed with a file open."""
+        state_last = app_state.get("last_opened") or {}
+        last_folder = state_last.get("folder")
+        last_filename = state_last.get("filename")
+
+        def is_valid(folder: Optional[str], filename: Optional[str]) -> bool:
+            if not folder or not filename:
+                return False
+            try:
+                return filename in list_markdown_files(folder)
+            except Exception:
+                return False
+
+        # Only open if last_opened is valid; otherwise start empty
+        if is_valid(last_folder, last_filename):
+            open_file(last_folder, last_filename)
+
+    _auto_open_startup_file()
 
     def close_tab(idx):
         instant_save()
         if 0 <= idx < len(open_tabs):
             open_tabs.pop(idx)
-            from backend.app_state import save_app_state
-
-            save_app_state({"open_tabs": open_tabs})
+            update_app_state(open_tabs=open_tabs)
             if open_tabs:
                 # Select previous tab if possible, else first tab
                 new_index = max(0, selected_tab_idx[0] - 1)
                 folder, filename = open_tabs[new_index]
                 file_name.current = filename
                 file_folder.current = folder
+                update_app_state(
+                    last_opened={
+                        "folder": file_folder.current,
+                        "filename": file_name.current,
+                    }
+                )
                 content = read_markdown_file(folder, filename)
-                file_content.current.value = content
+                main_content_component.set_content(content)
+                main_content_component.update()
                 selected_tab_idx[0] = new_index
             else:
                 file_name.current = ""
                 file_folder.current = ""
-                file_content.current.value = ""
-                if getattr(file_content.current, "page", None) is not None:
-                    file_content.current.update()
+                main_content_component.set_content("")
                 selected_tab_idx[0] = -1
-            update_tabs()
-            main_column.controls[1] = get_main_content_view()
+                update_app_state(last_opened=None)
+            tabs_bar.update()
+            main_column.controls[1] = main_content_component.get_view(file_name.current)
             if getattr(main_column, "page", None) is not None:
                 main_column.update()
             # Update sidebar highlight when closing tabs changes selection
@@ -1066,17 +903,17 @@ def main_page(page: ft.Page):
 
         # Show file creation dialog with folder selection
         folder_dropdown = ft.Dropdown(
-            width=200,
+            width=theme["DIALOG_INPUT_WIDTH_SM"],
             options=[ft.dropdown.Option(f) for f in list_folders()],
             value=list_folders()[0],
             label="Select Folder",
         )
         filename_field = ft.TextField(
-            width=200,
+            width=theme["DIALOG_INPUT_WIDTH_SM"],
             label="File name",
             autofocus=True,
         )
-        error_text = ft.Text("", color=theme["ERROR_COLOR"], size=12)
+        error_text = ft.Text("", color=theme["ERROR_COLOR"], size=theme["ERROR_TEXT_SIZE"])
 
         def on_create_new_file(e):
             file_name_val = (filename_field.value or "").strip()
@@ -1102,16 +939,19 @@ def main_page(page: ft.Page):
             # Create file without the .md extension (create_file adds it)
             create_file(folder, file_name_val.replace(".md", ""))
 
+            # Close dialog and provide feedback, mirroring sidebar behavior
             dialog.open = False
+            show_success("File created.")
+            refresh_sidebar()
+
             # Only open the tab if it does not already exist
             tab = normalize_tab((folder, file_name_val))
             if tab not in open_tabs:
                 open_file(folder, file_name_val)
             else:
-                # If already exists, just select it
-                selected_tab_idx[0] = open_tabs.index(tab)
-                update_tabs()
-            refresh_sidebar()
+                # If already exists, load and focus it to mirror pre-refactor behavior
+                select_tab(open_tabs.index(tab))
+
             page.update()
 
         dialog.title = ft.Text("Create New File")
